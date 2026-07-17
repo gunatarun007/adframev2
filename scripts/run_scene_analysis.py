@@ -67,6 +67,26 @@ def extract_frame_from_video(video_path: str, frame_idx: int, output_path: str):
     logger.info(f"Successfully extracted frame {frame_idx} (resolution: {width}x{height}) to {output_path}")
     return width, height
 
+def normalize_bbox(bbox):
+    if not bbox or len(bbox) != 4:
+        return bbox
+    # If any value is > 1.0, it is likely on Qwen's 1000x1000 grid
+    if any(val > 1.0 for val in bbox):
+        return [float(val) / 1000.0 for val in bbox]
+    return [float(val) for val in bbox]
+
+def normalize_scene_memory(scene_mem: dict) -> dict:
+    for obj in scene_mem.get("objects", []):
+        if "bbox_2d" in obj:
+            obj["bbox_2d"] = normalize_bbox(obj["bbox_2d"])
+    for surf in scene_mem.get("surfaces", []):
+        if "bbox_2d" in surf:
+            surf["bbox_2d"] = normalize_bbox(surf["bbox_2d"])
+    for region in scene_mem.get("empty_regions", []):
+        if "bbox_2d" in region:
+            region["bbox_2d"] = normalize_bbox(region["bbox_2d"])
+    return scene_mem
+
 def generate_planner_config(scene_mem: dict) -> dict:
     """
     Translates structured SceneMemory JSON into a valid planner.json configuration for FLUX.
@@ -258,6 +278,7 @@ def run_analysis(args):
     scene_memory_data = {}
     try:
         scene_memory_data = vlm.query_json(prompt, image_paths=[frame_path], expected_schema=schema)
+        scene_memory_data = normalize_scene_memory(scene_memory_data)
         # Ensure we write valid structured JSON output
         with open(scene_memory_path, "w") as f:
             json.dump(scene_memory_data, f, indent=2)
