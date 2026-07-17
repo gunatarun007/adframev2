@@ -59,23 +59,72 @@ class PlacementPlanner:
         empty_regions = scene_graph.get("empty_regions", [])
         objects = scene_graph.get("objects", [])
 
-        raw_candidates = []
-
-        if regions:
-            for reg in regions:
-                raw_candidates.append({
-                    "region_id": reg.get("region_id"),
-                    "surface_id": reg.get("surface_id"),
-                    "polygon": reg.get("polygon", []),
-                    "bbox": reg.get("bbox", reg.get("bbox_2d", [0.4, 0.4, 0.6, 0.6])),
-                    "stability_score": reg.get("stability_score", 1.0),
-                    "confidence": reg.get("confidence", 0.90),
-                    "occlusion_probability": reg.get("occlusion_probability", 0.05),
-                    "recommended_product_size": reg.get("recommended_product_size", "medium"),
-                    "available_area": reg.get("available_area", 0.8)
+        # Derive candidates from surfaces to ensure we always have diverse options across the scene
+        derived_candidates = []
+        for i, surf in enumerate(surfaces):
+            surf_id = surf.get("surface_id", f"surf_{i}")
+            surf_bbox = surf.get("bbox", surf.get("bbox_2d", [0.2, 0.2, 0.8, 0.8]))
+            ymin, xmin, ymax, xmax = surf_bbox
+            
+            w_box = xmax - xmin
+            h_box = ymax - ymin
+            
+            # We want each candidate region to take about 15% width / 20% height of the surface
+            cw = 0.15
+            ch = 0.20
+            
+            # Define 5 distinct anchor centers:
+            anchors = [
+                ("center", xmin + w_box * 0.5, ymin + h_box * 0.5),
+                ("left", xmin + w_box * 0.25, ymin + h_box * 0.5),
+                ("right", xmin + w_box * 0.75, ymin + h_box * 0.5),
+                ("front", xmin + w_box * 0.5, ymin + h_box * 0.75),
+                ("back", xmin + w_box * 0.5, ymin + h_box * 0.25)
+            ]
+            
+            for name, cx, cy in anchors:
+                # clamp within bounds
+                c_ymin = max(ymin, cy - ch / 2)
+                c_xmin = max(xmin, cx - cw / 2)
+                c_ymax = min(ymax, cy + ch / 2)
+                c_xmax = min(xmax, cx + cw / 2)
+                
+                derived_candidates.append({
+                    "region_id": f"region_{surf_id}_{name}",
+                    "surface_id": surf_id,
+                    "polygon": [
+                        [c_xmin, c_ymin],
+                        [c_xmax, c_ymin],
+                        [c_xmax, c_ymax],
+                        [c_xmin, c_ymax]
+                    ],
+                    "bbox": [c_ymin, c_xmin, c_ymax, c_xmax],
+                    "stability_score": float(surf.get("confidence", 0.9) * (0.8 if name != "center" else 1.0)),
+                    "confidence": float(surf.get("confidence", 0.9)),
+                    "occlusion_probability": 0.05 if name != "front" else 0.15,
+                    "recommended_product_size": "medium",
+                    "available_area": 0.8
                 })
-        else:
-            # Fallback to empty_regions or surfaces
+
+        raw_candidates = []
+        # Prepend original regions if they exist
+        for reg in regions:
+            raw_candidates.append({
+                "region_id": reg.get("region_id"),
+                "surface_id": reg.get("surface_id"),
+                "polygon": reg.get("polygon", []),
+                "bbox": reg.get("bbox", reg.get("bbox_2d", [0.4, 0.4, 0.6, 0.6])),
+                "stability_score": reg.get("stability_score", 1.0),
+                "confidence": reg.get("confidence", 0.90),
+                "occlusion_probability": reg.get("occlusion_probability", 0.05),
+                "recommended_product_size": reg.get("recommended_product_size", "medium"),
+                "available_area": reg.get("available_area", 0.8)
+            })
+
+        raw_candidates.extend(derived_candidates)
+
+        # Fallback to empty_regions if absolutely empty
+        if not raw_candidates:
             for i, reg in enumerate(empty_regions):
                 raw_candidates.append({
                     "region_id": reg.get("region_id", f"region_{i}"),
@@ -88,20 +137,6 @@ class PlacementPlanner:
                     "recommended_product_size": "medium",
                     "available_area": 0.7
                 })
-
-            if not raw_candidates and surfaces:
-                for i, surf in enumerate(surfaces):
-                    raw_candidates.append({
-                        "region_id": f"region_surface_{i}",
-                        "surface_id": surf.get("surface_id", f"surf_{i}"),
-                        "polygon": surf.get("polygon", []),
-                        "bbox": surf.get("bbox", surf.get("bbox_2d", [0.4, 0.4, 0.6, 0.6])),
-                        "stability_score": 1.0,
-                        "confidence": 0.80,
-                        "occlusion_probability": 0.10,
-                        "recommended_product_size": "medium",
-                        "available_area": 0.6
-                    })
 
         if not raw_candidates:
             # Absolute fallback
