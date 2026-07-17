@@ -1,6 +1,11 @@
 import os
+from enum import Enum
 from dataclasses import dataclass, field
 from typing import Dict, Any
+
+class VisionBackend(str, Enum):
+    MOCK = "mock"
+    QWEN = "qwen"
 
 @dataclass
 class PipelineConfig:
@@ -8,6 +13,10 @@ class PipelineConfig:
     vlm_model_id: str = os.getenv("ADFRAME_VLM_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct")
     flux_model_id: str = os.getenv("ADFRAME_FLUX_MODEL", "black-forest-labs/FLUX.1-Fill-dev")
     sam_model_id: str = os.getenv("ADFRAME_SAM_MODEL", "facebook/sam2-hiera-large")
+    
+    # Selected backend for vision model
+    vision_backend: str = os.getenv("ADFRAME_VISION_BACKEND", "mock")
+
     
     # Device configuration
     vlm_device: str = os.getenv("ADFRAME_VLM_DEVICE", "cuda")

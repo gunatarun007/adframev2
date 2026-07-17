@@ -6,39 +6,55 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger("adframe.vision")
 
+from adframe.config import VisionBackend, config
+
 class VisionModel:
     """
     Wrapper interface for the Qwen2.5-VL-7B-Instruct model (or any compliant VLM).
     Provides native support for scene analysis, structured JSON extraction, and mock fallback.
     """
-    def __init__(self, model_id: str = "Qwen/Qwen2.5-VL-7B-Instruct", device: str = "cuda", use_mock: bool = False):
-        self.model_id = model_id
-        self.device = device
-        self.use_mock = use_mock or os.getenv("ADFRAME_MOCK_VLM", "true").lower() == "true"
+    def __init__(self, backend: Optional[str] = None, model_id: Optional[str] = None, device: Optional[str] = None, cache_dir: Optional[str] = None, use_mock: Optional[bool] = None):
+        self.model_id = model_id or config.vlm_model_id
+        self.device = device or config.vlm_device
+        self.cache_dir = cache_dir or config.cache_dir
         
+        # Deduce backend based on parameters or global configuration
+        if backend is not None:
+            self.backend = VisionBackend(backend.lower())
+        elif use_mock is not None:
+            self.backend = VisionBackend.MOCK if use_mock else VisionBackend.QWEN
+        else:
+            self.backend = VisionBackend(config.vision_backend.lower())
+            
         self.model = None
         self.processor = None
         
-        if not self.use_mock:
+        if self.backend == VisionBackend.QWEN:
             try:
                 import torch
                 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
-                logger.info(f"Loading VLM model: {self.model_id} on {self.device}")
+                logger.info(f"Loading real Qwen2.5-VL model: {self.model_id} on {self.device} with cache={self.cache_dir}")
                 self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
                     self.model_id,
                     torch_dtype=torch.bfloat16,
-                    device_map=self.device
+                    device_map=self.device,
+                    cache_dir=self.cache_dir
                 )
-                self.processor = AutoProcessor.from_pretrained(self.model_id)
+                self.processor = AutoProcessor.from_pretrained(
+                    self.model_id,
+                    cache_dir=self.cache_dir
+                )
             except Exception as e:
-                logger.warning(f"Failed to load real VLM model ({e}). Falling back to MOCK mode.")
-                self.use_mock = True
+                logger.error(f"CRITICAL: Failed to load real Qwen2.5-VL model: {e}")
+                raise RuntimeError(f"Failed to load real Qwen2.5-VL model: {e}") from e
+        else:
+            logger.info("Initializing VisionModel in MOCK backend mode.")
 
     def query(self, prompt: str, image_paths: Optional[List[str]] = None, expected_schema: Optional[Dict[str, Any]] = None) -> str:
         """
         Executes a query to the VLM model.
         """
-        if self.use_mock:
+        if self.backend == VisionBackend.MOCK:
             return self._generate_mock_response(prompt, image_paths, expected_schema)
             
         try:
@@ -78,10 +94,7 @@ class VisionModel:
             return output_text
         except Exception as e:
             logger.error(f"Error during VLM inference: {e}")
-            if expected_schema:
-                # return minimal compliant mock JSON to prevent pipeline crash
-                return self._generate_mock_response(prompt, image_paths, expected_schema)
-            raise e
+            raise RuntimeError(f"Error during VLM inference: {e}") from e
 
     def query_json(self, prompt: str, image_paths: Optional[List[str]] = None, expected_schema: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -116,11 +129,12 @@ class VisionModel:
             return json.loads(cleaned)
         except Exception as e:
             logger.error(f"Failed to parse JSON response: {response_text}. Error: {e}")
-            if self.use_mock or expected_schema:
+            if self.backend == VisionBackend.MOCK:
                 logger.warning("Generating default schema mock structure on JSON parse failure.")
                 mock_str = self._generate_mock_response(prompt, image_paths, expected_schema)
                 return json.loads(mock_str)
-            raise ValueError(f"VLM response is not valid JSON: {response_text}")
+            raise ValueError(f"VLM response is not valid JSON: {response_text}. Parse error: {e}")
+
 
     def _generate_mock_response(self, prompt: str, image_paths: Optional[List[str]], expected_schema: Optional[Dict[str, Any]]) -> str:
         """
