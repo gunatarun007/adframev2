@@ -1,1 +1,1 @@
-# Generation module (FLUX)
+from adframe.generation.flux_generator import FluxGenerator

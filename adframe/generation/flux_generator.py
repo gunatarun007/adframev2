@@ -1,134 +1,203 @@
 import os
+import json
+import time
 import logging
-from typing import Optional
-from PIL import Image, ImageDraw, ImageFont
+from typing import Dict, Any, Optional
+import torch
+import numpy as np
+import cv2
+from PIL import Image
 
-logger = logging.getLogger("adframe.generation")
+from adframe.config import config
+
+logger = logging.getLogger("adframe.generation.flux_generator")
 
 class FluxGenerator:
     """
-    Wrapper for FLUX.1 Fill (Inpainting model) or standard diffusion pipeline.
-    Synthesizes realistic pixels within the masked region of the original frame.
-    Supports a mock renderer fallback to enable complete integration testing on non-GPU systems.
+    Manages loading and running the FLUX.1 Fill image generator.
+    Supports ModelScope, Hugging Face, and Local Directory registries.
     """
-    def __init__(self, model_id: str = "black-forest-labs/FLUX.1-Fill-dev", device: str = "cuda", use_mock: bool = False):
-        self.model_id = model_id
-        self.device = device
-        self.use_mock = use_mock or os.getenv("ADFRAME_MOCK_GENERATION", "true").lower() == "true"
-        
+    def __init__(self, backend: Optional[str] = None, provider: Optional[str] = None, model_id: Optional[str] = None, device: Optional[str] = None, use_mock: bool = False):
+        self.backend = backend or ("mock" if use_mock else "flux")
+        self.provider = provider or config.flux_provider
         self.pipeline = None
+        self.model_load_time_sec = 0.0
+
+    def load_model(self):
+        """
+        Loads the FLUX.1 Fill pipeline into memory based on the provider.
+        """
+        if self.backend == "mock":
+            logger.info("Initializing mock FLUX generator pipeline.")
+            return
+            
+        if self.pipeline is not None:
+            return
+            
+        t_start = time.time()
         
-        if not self.use_mock:
+        # 1. Resolve path based on provider abstraction
+        if self.provider == "modelscope":
+            logger.info(f"Using ModelScope provider to fetch: {config.flux_modelscope_id}")
             try:
-                import torch
-                from diffusers import FluxInpaintPipeline
-                logger.info(f"Loading FLUX.1 Fill model: {self.model_id} on {self.device}")
-                # Load pipeline in bfloat16 or float8 for L40S efficiency
-                self.pipeline = FluxInpaintPipeline.from_pretrained(
-                    self.model_id,
-                    torch_dtype=torch.bfloat16
-                )
-                self.pipeline.to(self.device)
-                
-                # Optional: Enable memory optimizations if VRAM is tight
-                # self.pipeline.enable_model_cpu_offload()
-                # self.pipeline.enable_sequential_cpu_offload()
-            except Exception as e:
-                logger.warning(f"Failed to load real FLUX Fill model ({e}). Falling back to MOCK generator.")
-                self.use_mock = True
-
-    def generate_fill(
-        self,
-        image_path: str,
-        mask_path: str,
-        prompt: str,
-        negative_prompt: Optional[str] = None,
-        num_steps: int = 25,
-        guidance_scale: float = 30.0
-    ) -> Image.Image:
-        """
-        Executes inpainting on the original frame within the masked region.
-        """
-        logger.info(f"Generating image fill with prompt: '{prompt}'")
-        
-        original_image = Image.open(image_path).convert("RGB")
-        mask_image = Image.open(mask_path).convert("L")
-        
-        if self.use_mock:
-            return self._generate_mock_fill(original_image, mask_image, prompt)
-            
-        try:
-            import torch
-            
-            # Execute standard FLUX Fill generation
-            output = self.pipeline(
-                prompt=prompt,
-                image=original_image,
-                mask_image=mask_image,
-                num_inference_steps=num_steps,
-                guidance_scale=guidance_scale,
-                width=original_image.width,
-                height=original_image.height
-            )
-            return output.images[0]
-        except Exception as e:
-            logger.error(f"Error during FLUX Fill generation: {e}")
-            logger.warning("Generation failed. Returning mock filled frame.")
-            return self._generate_mock_fill(original_image, mask_image, prompt)
-
-    def _generate_mock_fill(self, original_image: Image.Image, mask_image: Image.Image, prompt: str) -> Image.Image:
-        """
-        Draws a realistic product mockup in the masked region for end-to-end local testing.
-        """
-        logger.debug("Executing mock generator drawing operations.")
-        # Find the bounding box of the mask
-        mask_data = mask_image.load()
-        width, height = mask_image.size
-        
-        x_indices = []
-        y_indices = []
-        for y in range(height):
-            for x in range(width):
-                if mask_data[x, y] > 127:  # Mask is active
-                    x_indices.append(x)
-                    y_indices.append(y)
-                    
-        # If mask is empty, pick a center rectangle
-        if not x_indices:
-            x1, y1, x2, y2 = int(width * 0.4), int(height * 0.4), int(width * 0.6), int(height * 0.6)
+                from modelscope import snapshot_download
+                # Resolve local folder
+                model_dir = snapshot_download(config.flux_modelscope_id, cache_dir=config.cache_dir)
+                logger.info(f"ModelScope model snapshot resolved at: {model_dir}")
+                model_load_path = model_dir
+            except ImportError:
+                logger.warning("modelscope Python SDK is not installed. Trying fallback to Hugging Face model ID.")
+                model_load_path = config.flux_model_id
+        elif self.provider == "local":
+            logger.info(f"Using local path: {config.flux_model_id}")
+            model_load_path = config.flux_model_id
         else:
-            x1, y1, x2, y2 = min(x_indices), min(y_indices), max(x_indices), max(y_indices)
+            logger.info(f"Using Hugging Face provider to fetch: {config.flux_model_id}")
+            model_load_path = config.flux_model_id
+
+        # 2. Initialize diffusers pipeline
+        from diffusers import FluxFillPipeline
+        torch_dtype = torch.bfloat16 if config.flux_dtype == "bfloat16" else torch.float32
+        
+        logger.info(f"Initializing FluxFillPipeline from: {model_load_path}")
+        self.pipeline = FluxFillPipeline.from_pretrained(
+            model_load_path,
+            torch_dtype=torch_dtype,
+            cache_dir=config.cache_dir
+        )
+        
+        # 3. Memory offloading configuration
+        if config.use_cpu_offload:
+            logger.info("Enabling CPU offload for FluxFillPipeline VRAM efficiency.")
+            self.pipeline.enable_model_cpu_offload()
+        else:
+            self.pipeline.to(config.flux_device)
             
-        # Draw mock product inside the masked region
-        output_image = original_image.copy()
-        draw = ImageDraw.Draw(output_image)
+        t_end = time.time()
+        self.model_load_time_sec = t_end - t_start
+        logger.info(f"FLUX Fill model loaded successfully in {self.model_load_time_sec:.2f} seconds.")
+
+    def generate(self, image_path: str, planner_data: Dict[str, Any], output_path: str) -> Dict[str, Any]:
+        """
+        Runs inpainting generation using FLUX Fill inside the masked bbox region.
+        """
+        t_start_inf = time.time()
         
-        # Draw a solid mock bottle/box shape
-        fill_color = (70, 130, 180)  # Steel Blue product body
-        shadow_color = (30, 30, 30)  # Soft contact shadow
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"Input frame image not found: {image_path}")
+            
+        # Load image
+        pil_image = Image.open(image_path).convert("RGB")
+        width, height = pil_image.size
         
-        # 1. Contact shadow at bottom of product
-        draw.ellipse([x1, y2 - 10, x2, y2 + 10], fill=shadow_color)
+        # Extract bbox [ymin, xmin, ymax, xmax]
+        placement = planner_data.get("placement", {})
+        bbox = placement.get("bbox_2d", [0.4, 0.4, 0.6, 0.6])
         
-        # 2. Product container body
-        draw.rounded_rectangle([x1 + 10, y1 + 20, x2 - 10, y2 - 5], radius=15, fill=fill_color, outline=(255, 255, 255), width=2)
+        ymin, xmin, ymax, xmax = bbox
+        left = int(xmin * width)
+        top = int(ymin * height)
+        right = int(xmax * width)
+        bottom = int(ymax * height)
         
-        # 3. Product cap
-        cap_width = (x2 - x1) // 3
-        cx1 = x1 + cap_width
-        cx2 = x2 - cap_width
-        draw.rectangle([cx1, y1, cx2, y1 + 20], fill=(220, 220, 220), outline=(255, 255, 255), width=1)
+        left = max(0, min(width - 1, left))
+        top = max(0, min(height - 1, top))
+        right = max(left + 1, min(width, right))
+        bottom = max(top + 1, min(height, bottom))
         
-        # 4. Draw mock product label / text
-        label_text = "Brand Product"
-        # Extract name from prompt if possible
-        for word in prompt.split():
-            if len(word) > 4 and word.lower() not in ["standing", "sitting", "realistic", "table", "shadows", "sharp", "focus", "photo"]:
-                label_text = word.capitalize()
-                break
-                
-        # Draw label rectangle
-        draw.rectangle([x1 + 20, (y1+y2)//2 - 15, x2 - 20, (y1+y2)//2 + 15], fill=(255, 255, 255))
-        draw.text((x1 + 25, (y1+y2)//2 - 10), label_text, fill=(0, 0, 0))
+        # Build binary mask
+        mask_np = np.zeros((height, width), dtype=np.uint8)
+        mask_np[top:bottom, left:right] = 255
+        pil_mask = Image.fromarray(mask_np)
         
-        return output_image
+        mask_output_path = output_path.replace(".png", "_mask.png")
+        pil_mask.save(mask_output_path)
+        logger.info(f"Saved binary mask to {mask_output_path}")
+        
+        prompt = planner_data.get("prompt", "a product")
+        
+        if self.backend == "mock":
+            logger.info("Executing mock image generation...")
+            img_np = np.array(pil_image)
+            cv2.rectangle(img_np, (left, top), (right, bottom), (150, 0, 200), -1)
+            cv2.putText(img_np, "MOCK PRODUCT", (left + 5, top + int((bottom - top) / 2)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+            result_img = Image.fromarray(img_np)
+            result_img.save(output_path)
+            time.sleep(1.0)
+        else:
+            self.load_model()
+            logger.info("Invoking real FLUX Fill inference...")
+            
+            inf_w = ((width + 7) // 8) * 8
+            inf_h = ((height + 7) // 8) * 8
+            
+            resized_image = pil_image.resize((inf_w, inf_h), Image.Resampling.LANCZOS)
+            resized_mask = pil_mask.resize((inf_w, inf_h), Image.Resampling.NEAREST)
+            
+            generation_result = self.pipeline(
+                prompt=prompt,
+                image=resized_image,
+                mask_image=resized_mask,
+                height=inf_h,
+                width=inf_w,
+                guidance_scale=30.0,
+                num_inference_steps=28
+            ).images[0]
+            
+            result_img = generation_result.resize((width, height), Image.Resampling.LANCZOS)
+            result_img.save(output_path)
+            
+        t_end_inf = time.time()
+        inf_duration = t_end_inf - t_start_inf
+        logger.info(f"FLUX Fill generation completed in {inf_duration:.2f} seconds.")
+        
+        metadata = {
+            "image_size": f"{width}x{height}",
+            "prompt": prompt,
+            "bbox_coords": [ymin, xmin, ymax, xmax],
+            "backend": self.backend,
+            "provider": self.provider,
+            "inference_steps": 28
+        }
+        
+        metadata_path = output_path.replace(".png", "_metadata.json")
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+            
+        return {
+            "inference_time_sec": inf_duration,
+            "model_load_time_sec": self.model_load_time_sec,
+            "metadata_path": metadata_path
+        }
+
+    def generate_fill(self, image_path: str, mask_path: str, prompt: str, negative_prompt: Optional[str] = None) -> Image.Image:
+        """
+        Legacy wrapper for generate_fill used by OrchestrationPipeline.
+        """
+        planner_data = {
+            "prompt": prompt,
+            "negative_prompt": negative_prompt or "",
+            "placement": {
+                "bbox_2d": self._extract_bbox_from_mask(mask_path)
+            }
+        }
+        
+        temp_out = os.path.join(config.cache_dir, "temp_gen_out.png")
+        self.generate(image_path, planner_data, temp_out)
+        
+        return Image.open(temp_out).convert("RGB")
+
+    def _extract_bbox_from_mask(self, mask_path: str) -> list:
+        try:
+            mask = Image.open(mask_path).convert("L")
+            mask_np = np.array(mask)
+            non_zero = np.argwhere(mask_np > 128)
+            if non_zero.size == 0:
+                return [0.4, 0.4, 0.6, 0.6]
+            ymin, xmin = non_zero.min(axis=0)
+            ymax, xmax = non_zero.max(axis=0)
+            h, w = mask_np.shape
+            return [float(ymin) / h, float(xmin) / w, float(ymax) / h, float(xmax) / w]
+        except Exception:
+            return [0.4, 0.4, 0.6, 0.6]

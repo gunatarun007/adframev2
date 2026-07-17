@@ -12,6 +12,8 @@ class PipelineConfig:
     # Model configuration
     vlm_model_id: str = os.getenv("ADFRAME_VLM_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct")
     flux_model_id: str = os.getenv("ADFRAME_FLUX_MODEL", "black-forest-labs/FLUX.1-Fill-dev")
+    flux_modelscope_id: str = os.getenv("ADFRAME_FLUX_MODELSCOPE_ID", "AI-ModelScope/FLUX.1-Fill-dev")
+    flux_provider: str = os.getenv("ADFRAME_FLUX_PROVIDER", "modelscope")
     sam_model_id: str = os.getenv("ADFRAME_SAM_MODEL", "facebook/sam2-hiera-large")
     
     # Selected backend for vision model
@@ -21,6 +23,8 @@ class PipelineConfig:
     # Device configuration
     vlm_device: str = os.getenv("ADFRAME_VLM_DEVICE", "cuda")
     flux_device: str = os.getenv("ADFRAME_FLUX_DEVICE", "cuda")
+    flux_dtype: str = os.getenv("ADFRAME_FLUX_DTYPE", "bfloat16")
+    use_cpu_offload: bool = True
     sam_device: str = os.getenv("ADFRAME_SAM_DEVICE", "cuda")
     
     # Thresholds
