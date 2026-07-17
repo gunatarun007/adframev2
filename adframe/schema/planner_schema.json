@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PlacementPlanner",
+  "type": "object",
+  "properties": {
+    "target_surface": { "type": "string" },
+    "placement_candidate": { "type": "string" },
+    "rendering_constraints": {
+      "type": "object",
+      "properties": {
+        "shadow": { "type": "string" },
+        "reflection": { "type": "number" },
+        "lighting": { "type": "string" },
+        "camera_pitch": { "type": "number" }
+      },
+      "required": ["shadow", "reflection", "lighting", "camera_pitch"]
+    },
+    "negative_constraints": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["target_surface", "placement_candidate", "rendering_constraints", "negative_constraints"]
+}

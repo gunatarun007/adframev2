@@ -5,49 +5,21 @@ from adframe.vision.vision_model import VisionModel
 
 logger = logging.getLogger("adframe.planner")
 
-PLACEMENT_PLAN_SCHEMA = {
-    "title": "PlacementPlan",
-    "type": "OBJECT",
-    "properties": {
-        "placement": {
-            "type": "OBJECT",
-            "properties": {
-                "bbox_2d": { "type": "ARRAY", "items": { "type": "NUMBER" }, "minItems": 4, "maxItems": 4 },
-                "target_surface_id": { "type": "STRING" }
-            },
-            "required": ["bbox_2d", "target_surface_id"]
-        },
-        "rotation": {
-            "type": "OBJECT",
-            "properties": {
-                "yaw": { "type": "NUMBER" },
-                "pitch": { "type": "NUMBER" },
-                "roll": { "type": "NUMBER" }
-            },
-            "required": ["yaw", "pitch", "roll"]
-        },
-        "scale": { "type": "NUMBER" },
-        "visibility": {
-            "type": "OBJECT",
-            "properties": {
-                "occluded_by": { "type": "ARRAY", "items": { "type": "STRING" } },
-                "visible_percentage": { "type": "NUMBER" }
-            },
-            "required": ["visible_percentage"]
-        },
-        "prompt": { "type": "STRING" },
-        "negative_prompt": { "type": "STRING" },
-        "rendering_constraints": {
-            "type": "OBJECT",
-            "properties": {
-                "lighting_direction": { "type": "STRING" },
-                "shadow_softness": { "type": "STRING" }
-            },
-            "required": ["lighting_direction", "shadow_softness"]
-        }
-    },
-    "required": ["placement", "rotation", "scale", "visibility", "prompt", "rendering_constraints"]
-}
+import os
+import json
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+schema_path = os.path.join(current_dir, "..", "schema", "planner_schema.json")
+try:
+    with open(schema_path, "r") as f:
+        PLANNER_SCHEMA = json.load(f)
+except Exception as e:
+    logger = logging.getLogger("adframe.planner")
+    logger.error(f"Failed to load planner schema from {schema_path}: {e}")
+    PLANNER_SCHEMA = {}
+
+# Backward compatibility
+PLACEMENT_PLAN_SCHEMA = {"title": "PlacementPlan", "type": "OBJECT"}
 
 class PlacementPlanner:
     """
@@ -59,114 +31,147 @@ class PlacementPlanner:
     def __init__(self, vision_model: Optional[VisionModel] = None):
         self.vlm = vision_model
 
-    def plan_placement(self, scene_memory_state: Dict[str, Any], product_metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def plan_placement(self, scene_graph: Optional[Dict[str, Any]] = None, product_metadata: Optional[Dict[str, Any]] = None, scene_memory_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Determines the optimal placement strategy using the VLM (or deterministic rule fallback).
+        Processes the Scene Graph to choose and rank candidates, producing a planner.json layout.
+        Also retains backward-compatibility keys for legacy callers/tests.
         """
+        if scene_graph is None:
+            scene_graph = scene_memory_state or {}
+        if product_metadata is None:
+            product_metadata = {}
+            
         logger.info(f"Planning product placement for product: {product_metadata.get('product_id', 'unknown')}")
         
-        if self.vlm:
-            try:
-                # Compile a high-fidelity semantic prompt for the VLM to choose the best empty region
-                prompt = (
-                    f"You are the Placement Planner in an AI product placement pipeline. Given the current Scene Memory:\n"
-                    f"{self._format_scene_memory_for_prompt(scene_memory_state)}\n\n"
-                    f"And the target product metadata:\n"
-                    f"{self._format_product_metadata_for_prompt(product_metadata)}\n\n"
-                    f"Determine the most realistic empty placement region and output a detailed PlacementPlan JSON. "
-                    f"Prioritize realism: place horizontal products (bottles, boxes) on horizontal surfaces, align lighting directions, "
-                    f"ensure perspective scales, and respect occlusion. Never float products. "
-                    f"Generate a rendering prompt for FLUX Fill describing the product in its new environment, blending with the target surface material."
-                )
-                
-                plan = self.vlm.query_json(
-                    prompt=prompt,
-                    image_paths=None,  # VLM reasons semantically over scene memory json
-                    expected_schema=PLACEMENT_PLAN_SCHEMA
-                )
-                return plan
-            except Exception as e:
-                logger.error(f"VLM placement planning failed: {e}. Falling back to deterministic planner.")
+        # Extract metadata
+        prod_name = product_metadata.get("name", "product")
         
-        return self._deterministic_fallback_plan(scene_memory_state, product_metadata)
-
-    def _format_scene_memory_for_prompt(self, state: Dict[str, Any]) -> str:
-        # Simplify scene memory for prompt reading
-        simplified = {
-            "room_type": state.get("room_type", "unknown"),
-            "lighting": state.get("lighting", {}),
-            "surfaces": [
-                {
-                    "id": s["surface_id"],
-                    "label": s["label"],
-                    "material": s["material"],
-                    "orientation": s["orientation"]
-                }
-                for s in state.get("surfaces", [])
-            ],
-            "empty_regions": state.get("empty_regions", [])
-        }
-        return json.dumps(simplified, indent=2)
-
-    def _format_product_metadata_for_prompt(self, meta: Dict[str, Any]) -> str:
-        return json.dumps(meta, indent=2)
-
-    def _deterministic_fallback_plan(self, state: Dict[str, Any], product: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Determines placement deterministically if the VLM is unavailable.
-        """
-        logger.warning("Executing deterministic fallback placement plan.")
+        # 1. Normalize/Ensure placement candidates exist
+        candidates = scene_graph.get("placement_candidates", [])
         
-        # Pick the first horizontal surface with an empty region
-        target_region = None
-        target_surface = None
-        
-        surfaces = state.get("surfaces", [])
-        empty_regions = state.get("empty_regions", [])
-        
-        for region in empty_regions:
-            surface_id = region.get("surface_id")
-            surface = next((s for s in surfaces if s["surface_id"] == surface_id), None)
-            if surface and surface.get("orientation") == "horizontal":
-                target_region = region
-                target_surface = surface
-                break
-                
-        # Default region if none found
-        if not target_region and empty_regions:
-            target_region = empty_regions[0]
-            surface_id = target_region.get("surface_id")
-            target_surface = next((s for s in surfaces if s["surface_id"] == surface_id), None)
+        # Fallback if no placement candidates are defined in the scene_graph
+        if not candidates:
+            # Try to build candidates from empty_regions or surfaces
+            empty_regions = scene_graph.get("empty_regions", [])
+            surfaces = scene_graph.get("surfaces", [])
             
-        bbox = target_region.get("bbox_2d", [0.4, 0.4, 0.6, 0.6]) if target_region else [0.4, 0.4, 0.6, 0.6]
-        surface_id = target_region.get("surface_id", "default_surface") if target_region else "default_surface"
-        material = target_surface.get("material", "surface") if target_surface else "surface"
+            for i, region in enumerate(empty_regions):
+                surf_id = region.get("surface_id", "default_surface")
+                surf = next((s for s in surfaces if s.get("surface_id") == surf_id), None)
+                surf_label = surf.get("label", "surface") if surf else "surface"
+                
+                # Check orientation
+                orientation = surf.get("orientation", "horizontal") if surf else "horizontal"
+                # Give horizontal regions higher base score
+                base_score = 0.9 if orientation == "horizontal" else 0.5
+                
+                candidates.append({
+                    "candidate_id": region.get("region_id", f"candidate_{i}"),
+                    "surface": surf_id,
+                    "polygon": region.get("polygon", []),
+                    "bbox": region.get("bbox", region.get("bbox_2d", [0.4, 0.4, 0.6, 0.6])),
+                    "score": base_score,
+                    "reason": f"Derived from empty region {region.get('region_id')}",
+                    "recommended_product_size": "medium container",
+                    "camera_visibility": 0.95,
+                    "risk": 0.05,
+                    "confidence": 0.90
+                })
+            
+            # If still no candidates, check surfaces
+            if not candidates and surfaces:
+                for i, surf in enumerate(surfaces):
+                    orientation = surf.get("orientation", "horizontal")
+                    base_score = 0.8 if orientation == "horizontal" else 0.4
+                    candidates.append({
+                        "candidate_id": f"candidate_surface_{i}",
+                        "surface": surf.get("surface_id", f"surf_{i}"),
+                        "polygon": surf.get("polygon", []),
+                        "bbox": surf.get("bbox", surf.get("bbox_2d", [0.4, 0.4, 0.6, 0.6])),
+                        "score": base_score,
+                        "reason": f"Derived from surface {surf.get('surface_id')}",
+                        "recommended_product_size": "medium container",
+                        "camera_visibility": 0.90,
+                        "risk": 0.1,
+                        "confidence": 0.85
+                    })
         
-        prod_name = product.get("name", "product")
-        lighting_dir = state.get("lighting", {}).get("direction", "top")
+        # Default candidate if absolutely nothing exists
+        if not candidates:
+            candidates.append({
+                "candidate_id": "default_center",
+                "surface": "default_surface",
+                "polygon": [],
+                "bbox": [0.4, 0.4, 0.6, 0.6],
+                "score": 0.5,
+                "reason": "Fallback default",
+                "recommended_product_size": "medium",
+                "camera_visibility": 1.0,
+                "risk": 0.0,
+                "confidence": 1.0
+            })
+            
+        # 2. Automatically rank candidates by score descending
+        ranked_candidates = sorted(candidates, key=lambda x: x.get("score", 0.0), reverse=True)
+        top_candidate = ranked_candidates[0]
         
-        # Simple generated prompt
-        prompt = f"a realistic {prod_name} sitting on the {material}, matching shadows, realistic {lighting_dir} light, highly detailed, 4k"
+        # Get target surface details
+        target_surf_id = top_candidate["surface"]
+        surfaces = scene_graph.get("surfaces", [])
+        target_surface = next((s for s in surfaces if s.get("surface_id") == target_surf_id), None)
+        material = target_surface.get("material", "wood") if target_surface else "wood"
+        reflection = target_surface.get("reflection_strength", 0.15) if target_surface else 0.15
         
-        return {
+        # Get lighting & camera info
+        lighting = scene_graph.get("lighting", {})
+        lighting_dir = lighting.get("direction", "top-right")
+        lighting_type = lighting.get("type", "ambient")
+        
+        camera = scene_graph.get("camera", {})
+        camera_pitch = camera.get("pitch", -10.0)
+        
+        # Construct rendering and negative constraints
+        rendering_constraints = {
+            "shadow": "soft" if lighting.get("ambient", 0.3) > 0.2 else "hard",
+            "reflection": reflection,
+            "lighting": f"{lighting_type} ({lighting_dir})",
+            "camera_pitch": camera_pitch
+        }
+        
+        negative_constraints = [
+            "avoid face",
+            "avoid keyboard",
+            "avoid monitor"
+        ]
+        
+        # Generate prompt for FLUX in legacy key (backward compatibility)
+        prompt_text = f"a luxury {prod_name} sitting upright on a {material} surface, blending with the surroundings, cinematic lighting from the {lighting_dir}, realistic shadows"
+        
+        # Build the unified plan dictionary containing both new and old fields
+        plan = {
+            # New schema fields (complying with planner_schema.json)
+            "target_surface": target_surf_id,
+            "placement_candidate": top_candidate["candidate_id"],
+            "rendering_constraints": rendering_constraints,
+            "negative_constraints": negative_constraints,
+            
+            # Legacy fields for backward compatibility
             "placement": {
-                "bbox_2d": bbox,
-                "target_surface_id": surface_id
+                "bbox_2d": top_candidate["bbox"],
+                "target_surface_id": target_surf_id
             },
             "rotation": {
                 "yaw": 0.0,
                 "pitch": 0.0,
                 "roll": 0.0
             },
-            "scale": 1.0,
+            "scale": 0.85,
             "visibility": {
                 "occluded_by": [],
                 "visible_percentage": 100.0
             },
-            "prompt": prompt,
-            "negative_prompt": "floating, deformed, wrong perspective, poorly composited",
-            "rendering_constraints": {
-                "lighting_direction": lighting_dir,
-                "shadow_softness": "soft"
-            }
+            "prompt": prompt_text,
+            "negative_prompt": "floating, bad lighting, cropped, blurry, low quality"
         }
+        
+        return plan

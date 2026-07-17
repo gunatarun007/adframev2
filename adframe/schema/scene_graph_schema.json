@@ -1,0 +1,193 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SceneGraph",
+  "type": "object",
+  "properties": {
+    "scene": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "confidence": { "type": "number" }
+      },
+      "required": ["id", "type", "confidence"]
+    },
+    "camera": {
+      "type": "object",
+      "properties": {
+        "position": { "type": "string" },
+        "pitch": { "type": "number" },
+        "yaw": { "type": "number" },
+        "roll": { "type": "number" },
+        "fov_estimate": { "type": "number" },
+        "camera_height": { "type": "number" },
+        "confidence": { "type": "number" }
+      },
+      "required": ["position", "pitch", "yaw", "roll", "fov_estimate", "camera_height", "confidence"]
+    },
+    "lighting": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "direction": { "type": "string" },
+        "temperature": { "type": "number" },
+        "intensity": { "type": "number" },
+        "ambient": { "type": "number" },
+        "confidence": { "type": "number" }
+      },
+      "required": ["type", "direction", "temperature", "intensity", "ambient", "confidence"]
+    },
+    "surfaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "surface_id": { "type": "string" },
+          "label": { "type": "string" },
+          "polygon": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": "number" },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "bbox": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "material": { "type": "string" },
+          "orientation": { "type": "string" },
+          "depth_estimate": { "type": "number" },
+          "surface_normal": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "reflection_strength": { "type": "number" },
+          "shadow_strength": { "type": "number" },
+          "usable_area": { "type": "number" },
+          "confidence": { "type": "number" }
+        },
+        "required": ["surface_id", "label", "bbox", "material", "orientation", "depth_estimate", "reflection_strength", "usable_area", "confidence"]
+      }
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "bbox": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "polygon": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": "number" },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "depth": { "type": "number" },
+          "occluder": { "type": "boolean" },
+          "movable": { "type": "boolean" },
+          "brand_safe": { "type": "boolean" },
+          "confidence": { "type": "number" }
+        },
+        "required": ["id", "label", "bbox", "depth", "occluder", "movable", "brand_safe", "confidence"]
+      }
+    },
+    "empty_regions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "region_id": { "type": "string" },
+          "polygon": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": "number" },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "bbox": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "available_area": { "type": "number" },
+          "visibility_score": { "type": "number" },
+          "occlusion_probability": { "type": "number" },
+          "distance_to_camera": { "type": "number" },
+          "surface_id": { "type": "string" },
+          "confidence": { "type": "number" }
+        },
+        "required": ["region_id", "bbox", "available_area", "visibility_score", "occlusion_probability", "distance_to_camera", "surface_id", "confidence"]
+      }
+    },
+    "occlusions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "occluder_object_id": { "type": "string" },
+          "occluded_object_id": { "type": "string" },
+          "occlusion_bbox": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "occlusion_percentage": { "type": "number" }
+        },
+        "required": ["occluder_object_id", "occluded_object_id", "occlusion_bbox", "occlusion_percentage"]
+      }
+    },
+    "placement_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "candidate_id": { "type": "string" },
+          "surface": { "type": "string" },
+          "polygon": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": "number" },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "bbox": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "score": { "type": "number" },
+          "reason": { "type": "string" },
+          "recommended_product_size": { "type": "string" },
+          "camera_visibility": { "type": "number" },
+          "risk": { "type": "number" },
+          "confidence": { "type": "number" }
+        },
+        "required": ["candidate_id", "surface", "bbox", "score", "reason", "recommended_product_size", "camera_visibility", "risk", "confidence"]
+      }
+    }
+  },
+  "required": ["scene", "camera", "lighting", "surfaces", "objects", "empty_regions", "occlusions", "placement_candidates"]
+}

@@ -145,7 +145,128 @@ class VisionModel:
             
         title = expected_schema.get("title", "")
         
-        if title == "SceneMemory":
+        if title == "SceneGraph":
+            return json.dumps({
+                "scene": {
+                    "id": "mock_scene_101",
+                    "type": "living_room",
+                    "confidence": 0.98
+                },
+                "camera": {
+                    "position": "center",
+                    "pitch": -12.5,
+                    "yaw": 45.0,
+                    "roll": 0.0,
+                    "fov_estimate": 65.0,
+                    "camera_height": 1.2,
+                    "confidence": 0.90
+                },
+                "lighting": {
+                    "type": "ambient",
+                    "direction": "top-right",
+                    "temperature": 4500.0,
+                    "intensity": 0.8,
+                    "ambient": 0.3,
+                    "confidence": 0.88
+                },
+                "surfaces": [
+                    {
+                        "surface_id": "surface_table_1",
+                        "label": "wooden coffee table",
+                        "polygon": [[0.2, 0.45], [0.8, 0.45], [0.8, 0.85], [0.2, 0.85]],
+                        "bbox": [0.45, 0.20, 0.85, 0.80],
+                        "material": "wood",
+                        "orientation": "horizontal",
+                        "depth_estimate": 2.15,
+                        "surface_normal": [0.0, 1.0, 0.0],
+                        "reflection_strength": 0.18,
+                        "shadow_strength": 0.3,
+                        "usable_area": 0.92,
+                        "confidence": 0.95
+                    },
+                    {
+                        "surface_id": "surface_wall_2",
+                        "label": "plaster back wall",
+                        "polygon": [[0.0, 0.0], [1.0, 0.0], [1.0, 0.5], [0.0, 0.5]],
+                        "bbox": [0.0, 0.0, 0.50, 1.0],
+                        "material": "plaster",
+                        "orientation": "vertical",
+                        "depth_estimate": 3.5,
+                        "surface_normal": [0.0, 0.0, 1.0],
+                        "reflection_strength": 0.05,
+                        "shadow_strength": 0.1,
+                        "usable_area": 0.0,
+                        "confidence": 0.92
+                    }
+                ],
+                "objects": [
+                    {
+                        "id": "object_sofa_1",
+                        "label": "grey fabric sofa",
+                        "bbox": [0.35, 0.10, 0.60, 0.90],
+                        "polygon": [[0.1, 0.35], [0.9, 0.35], [0.9, 0.60], [0.1, 0.60]],
+                        "depth": 2.8,
+                        "occluder": false,
+                        "movable": false,
+                        "brand_safe": true,
+                        "confidence": 0.91
+                    }
+                ],
+                "empty_regions": [
+                    {
+                        "region_id": "region_table_surface",
+                        "polygon": [[0.35, 0.55], [0.65, 0.55], [0.65, 0.75], [0.35, 0.75]],
+                        "bbox": [0.55, 0.35, 0.75, 0.65],
+                        "available_area": 0.75,
+                        "visibility_score": 0.95,
+                        "occlusion_probability": 0.05,
+                        "distance_to_camera": 2.1,
+                        "surface_id": "surface_table_1",
+                        "confidence": 0.94
+                    }
+                ],
+                "occlusions": [
+                    {
+                        "occluder_object_id": "object_sofa_1",
+                        "occluded_object_id": "surface_wall_2",
+                        "occlusion_bbox": [0.35, 0.10, 0.50, 0.90],
+                        "occlusion_percentage": 15.0
+                    }
+                ],
+                "placement_candidates": [
+                    {
+                        "candidate_id": "table_center",
+                        "surface": "surface_table_1",
+                        "polygon": [[0.35, 0.55], [0.65, 0.55], [0.65, 0.75], [0.35, 0.75]],
+                        "bbox": [0.55, 0.35, 0.75, 0.65],
+                        "score": 0.94,
+                        "reason": "Maximum visibility with minimal occlusion.",
+                        "recommended_product_size": "500ml bottle",
+                        "camera_visibility": 0.95,
+                        "risk": 0.05,
+                        "confidence": 0.94
+                    }
+                ]
+            }, indent=2)
+
+        elif title in ("PlacementPlanner", "PlacementPlan"):
+            return json.dumps({
+                "target_surface": "surface_table_1",
+                "placement_candidate": "table_center",
+                "rendering_constraints": {
+                    "shadow": "soft",
+                    "reflection": 0.18,
+                    "lighting": "warm",
+                    "camera_pitch": -12.5
+                },
+                "negative_constraints": [
+                    "avoid face",
+                    "avoid keyboard",
+                    "avoid monitor"
+                ]
+            }, indent=2)
+            
+        elif title == "SceneMemory":
             return json.dumps({
                 "scene_id": "mock_scene_101",
                 "room_type": "living_room",
