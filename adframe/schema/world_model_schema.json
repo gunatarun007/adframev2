@@ -1,0 +1,235 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WorldModel",
+  "type": "object",
+  "properties": {
+    "scene": {
+      "type": "object",
+      "properties": {
+        "scene_id": { "type": "string" },
+        "duration_frames": { "type": "integer" }
+      },
+      "required": ["scene_id", "duration_frames"]
+    },
+    "camera": {
+      "type": "object",
+      "properties": {
+        "position": { "type": "string" },
+        "pitch": { "type": "number" },
+        "yaw": { "type": "number" },
+        "roll": { "type": "number" },
+        "fov_estimate": { "type": "number" },
+        "camera_height": { "type": "number" },
+        "confidence": { "type": "number" }
+      },
+      "required": ["position", "pitch", "yaw", "roll", "fov_estimate", "camera_height", "confidence"]
+    },
+    "lighting": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "direction": { "type": "string" },
+        "temperature": { "type": "number" },
+        "intensity": { "type": "number" },
+        "ambient": { "type": "number" },
+        "confidence": { "type": "number" }
+      },
+      "required": ["type", "direction", "temperature", "intensity", "ambient", "confidence"]
+    },
+    "surfaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "surface_id": { "type": "string" },
+          "label": { "type": "string" },
+          "polygon": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": "number" }
+            }
+          },
+          "bbox": {
+            "type": "array",
+            "items": { "type": "number" }
+          },
+          "material": { "type": "string" },
+          "orientation": { "type": "string" },
+          "depth_estimate": { "type": "number" },
+          "surface_normal": {
+            "type": "array",
+            "items": { "type": "number" }
+          },
+          "reflection_strength": { "type": "number" },
+          "shadow_strength": { "type": "number" },
+          "usable_area": { "type": "number" },
+          "first_seen_frame": { "type": "integer" },
+          "last_seen_frame": { "type": "integer" },
+          "confidence": { "type": "number" }
+        },
+        "required": ["surface_id", "label", "bbox", "material", "orientation", "depth_estimate", "reflection_strength", "usable_area", "first_seen_frame", "last_seen_frame", "confidence"]
+      }
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "object_id": { "type": "string" },
+          "class_label": { "type": "string" },
+          "trajectory": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": "number" }
+            }
+          },
+          "bbox_history": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": "number" }
+            }
+          },
+          "polygon_history": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": { "type": "number" }
+              }
+            }
+          },
+          "visibility_history": {
+            "type": "array",
+            "items": { "type": "number" }
+          },
+          "depth_history": {
+            "type": "array",
+            "items": { "type": "number" }
+          },
+          "occlusion_history": {
+            "type": "array",
+            "items": { "type": "number" }
+          },
+          "motion_state": { "type": "string" },
+          "confidence": { "type": "number" }
+        },
+        "required": ["object_id", "class_label", "trajectory", "bbox_history", "confidence"]
+      }
+    },
+    "placement_regions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "region_id": { "type": "string" },
+          "surface_id": { "type": "string" },
+          "polygon": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": "number" }
+            }
+          },
+          "bbox": {
+            "type": "array",
+            "items": { "type": "number" }
+          },
+          "available_area": { "type": "number" },
+          "visibility_history": {
+            "type": "array",
+            "items": { "type": "number" }
+          },
+          "occlusion_probability": { "type": "number" },
+          "distance_to_camera": { "type": "number" },
+          "camera_angle_history": {
+            "type": "array",
+            "items": { "type": "number" }
+          },
+          "stability_score": { "type": "number" },
+          "average_ranking": { "type": "number" },
+          "recommended_product_size": { "type": "string" },
+          "confidence": { "type": "number" }
+        },
+        "required": ["region_id", "surface_id", "bbox", "available_area", "occlusion_probability", "distance_to_camera", "stability_score", "average_ranking", "recommended_product_size", "confidence"]
+      }
+    },
+    "timelines": {
+      "type": "object",
+      "properties": {
+        "camera": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "frame": { "type": "integer" },
+              "position": { "type": "string" },
+              "pitch": { "type": "number" },
+              "yaw": { "type": "number" },
+              "roll": { "type": "number" }
+            },
+            "required": ["frame", "position", "pitch", "yaw", "roll"]
+          }
+        },
+        "lighting": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "frame": { "type": "integer" },
+              "type": { "type": "string" },
+              "direction": { "type": "string" },
+              "temperature": { "type": "number" },
+              "intensity": { "type": "number" }
+            },
+            "required": ["frame", "type", "direction", "temperature", "intensity"]
+          }
+        },
+        "objects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "frame": { "type": "integer" },
+              "object_id": { "type": "string" },
+              "bbox": {
+                "type": "array",
+                "items": { "type": "number" }
+              }
+            },
+            "required": ["frame", "object_id", "bbox"]
+          }
+        }
+      },
+      "required": ["camera", "lighting", "objects"]
+    },
+    "statistics": {
+      "type": "object",
+      "properties": {
+        "average_lighting_temperature": { "type": "number" },
+        "lighting_stability": { "type": "number" },
+        "lighting_changes_detected": { "type": "integer" },
+        "temperature_trend": { "type": "string" },
+        "shadow_direction_trend": { "type": "string" },
+        "reflection_trend": { "type": "string" },
+        "camera_movement": { "type": "string" },
+        "camera_velocity": { "type": "number" },
+        "camera_stability": { "type": "number" }
+      },
+      "required": ["average_lighting_temperature", "lighting_stability", "camera_movement", "camera_stability"]
+    },
+    "confidence": {
+      "type": "object",
+      "properties": {
+        "overall_scene_confidence": { "type": "number" },
+        "surfaces_confidence": { "type": "number" },
+        "objects_confidence": { "type": "number" }
+      },
+      "required": ["overall_scene_confidence"]
+    }
+  },
+  "required": ["scene", "camera", "lighting", "surfaces", "objects", "placement_regions", "timelines", "statistics", "confidence"]
+}

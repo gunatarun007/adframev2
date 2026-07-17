@@ -33,7 +33,7 @@ class PlacementPlanner:
 
     def plan_placement(self, scene_graph: Optional[Dict[str, Any]] = None, product_metadata: Optional[Dict[str, Any]] = None, scene_memory_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Processes the Scene Graph to choose and rank candidates, producing a planner.json layout.
+        Processes the Scene Graph or WorldModel to choose and rank candidates, producing a planner.json layout.
         Also retains backward-compatibility keys for legacy callers/tests.
         """
         if scene_graph is None:
@@ -46,10 +46,29 @@ class PlacementPlanner:
         # Extract metadata
         prod_name = product_metadata.get("name", "product")
         
-        # 1. Normalize/Ensure placement candidates exist
-        candidates = scene_graph.get("placement_candidates", [])
+        # 1. Normalize/Ensure placement candidates exist (checking "placement_regions" first for WorldModel)
+        regions = scene_graph.get("placement_regions", [])
+        candidates = []
         
-        # Fallback if no placement candidates are defined in the scene_graph
+        if regions:
+            for reg in regions:
+                candidates.append({
+                    "candidate_id": reg.get("region_id"),
+                    "surface": reg.get("surface_id"),
+                    "polygon": reg.get("polygon", []),
+                    "bbox": reg.get("bbox", reg.get("bbox_2d", [0.4, 0.4, 0.6, 0.6])),
+                    "score": reg.get("stability_score", 1.0) * reg.get("available_area", 0.8),
+                    "stability_score": reg.get("stability_score", 1.0),
+                    "reason": f"Tracked region {reg.get('region_id')} (stability: {reg.get('stability_score', 1.0):.2f})",
+                    "recommended_product_size": reg.get("recommended_product_size", "medium"),
+                    "camera_visibility": 0.95,
+                    "risk": reg.get("occlusion_probability", 0.05),
+                    "confidence": reg.get("confidence", 0.90)
+                })
+        else:
+            candidates = scene_graph.get("placement_candidates", [])
+            
+        # Fallback if no placement candidates are defined in the scene_graph or empty
         if not candidates:
             # Try to build candidates from empty_regions or surfaces
             empty_regions = scene_graph.get("empty_regions", [])
@@ -71,6 +90,7 @@ class PlacementPlanner:
                     "polygon": region.get("polygon", []),
                     "bbox": region.get("bbox", region.get("bbox_2d", [0.4, 0.4, 0.6, 0.6])),
                     "score": base_score,
+                    "stability_score": 1.0,
                     "reason": f"Derived from empty region {region.get('region_id')}",
                     "recommended_product_size": "medium container",
                     "camera_visibility": 0.95,
@@ -89,6 +109,7 @@ class PlacementPlanner:
                         "polygon": surf.get("polygon", []),
                         "bbox": surf.get("bbox", surf.get("bbox_2d", [0.4, 0.4, 0.6, 0.6])),
                         "score": base_score,
+                        "stability_score": 1.0,
                         "reason": f"Derived from surface {surf.get('surface_id')}",
                         "recommended_product_size": "medium container",
                         "camera_visibility": 0.90,
@@ -104,6 +125,7 @@ class PlacementPlanner:
                 "polygon": [],
                 "bbox": [0.4, 0.4, 0.6, 0.6],
                 "score": 0.5,
+                "stability_score": 1.0,
                 "reason": "Fallback default",
                 "recommended_product_size": "medium",
                 "camera_visibility": 1.0,
@@ -111,8 +133,8 @@ class PlacementPlanner:
                 "confidence": 1.0
             })
             
-        # 2. Automatically rank candidates by score descending
-        ranked_candidates = sorted(candidates, key=lambda x: x.get("score", 0.0), reverse=True)
+        # 2. Automatically rank candidates by temporal stability score primary, and visual score secondary
+        ranked_candidates = sorted(candidates, key=lambda x: (x.get("stability_score", 1.0), x.get("score", 0.0)), reverse=True)
         top_candidate = ranked_candidates[0]
         
         # Get target surface details
