@@ -206,9 +206,9 @@ class VisionModel:
                         "bbox": [0.35, 0.10, 0.60, 0.90],
                         "polygon": [[0.1, 0.35], [0.9, 0.35], [0.9, 0.60], [0.1, 0.60]],
                         "depth": 2.8,
-                        "occluder": false,
-                        "movable": false,
-                        "brand_safe": true,
+                        "occluder": False,
+                        "movable": False,
+                        "brand_safe": True,
                         "confidence": 0.91
                     }
                 ],
